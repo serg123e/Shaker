@@ -1,4 +1,4 @@
-const CACHE = 'shaker-v2';
+const CACHE = 'shaker-v3';
 const ASSETS = [
   './',
   './index.html',

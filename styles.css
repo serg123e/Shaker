@@ -138,6 +138,106 @@ input[type="range"] {
   text-overflow: ellipsis;
 }
 
+details h3 {
+  margin: 18px 0 4px;
+  font-size: 14px;
+  color: #d4d4d8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hint-sub {
+  margin: 0;
+  font-size: 13px;
+  color: #71717a;
+  line-height: 1.4;
+}
+
+input[type="button"].ghost,
+button.ghost {
+  background: #27272a;
+  color: #d4d4d8;
+}
+
+input[type="button"].rec {
+  background: #dc2626;
+}
+
+input[type="button"].rec.active {
+  background: #16a34a;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.7; }
+}
+
+select {
+  appearance: none;
+  background: #1c1c1f;
+  color: #f4f4f5;
+  border: 1px solid #2a2a2e;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  width: 100%;
+}
+
+.checkbox-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+  color: #d4d4d8 !important;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+}
+
+.recordings-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.recordings-list .empty {
+  font-size: 13px;
+  color: #71717a;
+  padding: 8px 0;
+}
+
+.rec-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #1c1c1f;
+  border-radius: 10px;
+}
+
+.rec-row .label {
+  flex: 1;
+  font-size: 13px;
+  color: #d4d4d8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.rec-row button {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+.rec-row .play {
+  background: #2563eb;
+}
+
+.rec-row .del {
+  background: #3f3f46;
+}
+
 .footnote {
   margin-top: auto;
   font-size: 12px;

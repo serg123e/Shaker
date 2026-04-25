@@ -30,13 +30,24 @@ const state = {
   armed: false,
   cooldownUntil: 0,
   lastPhraseIndex: -1,
+  lastRecIndex: -1,
   voice: null,
+  voiceURI: null,
+  ttsPitch: 0.6,
+  recPitch: 0.78,
+  useRecordings: true,
   threshold: 3,
   peak: 0,
   events: 0,
   lastValue: 0,
   rotPeak: 0,
 };
+
+let audioCtx = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingStream = null;
+let recordings = [];
 
 const els = {
   start: document.getElementById('start'),
@@ -60,6 +71,15 @@ const els = {
   dbgRot: document.getElementById('dbgRot'),
   dbgRotMag: document.getElementById('dbgRotMag'),
   dbgSignal: document.getElementById('dbgSignal'),
+  voiceSelect: document.getElementById('voiceSelect'),
+  ttsPitch: document.getElementById('ttsPitch'),
+  ttsPitchValue: document.getElementById('ttsPitchValue'),
+  recordBtn: document.getElementById('recordBtn'),
+  recPitch: document.getElementById('recPitch'),
+  recPitchValue: document.getElementById('recPitchValue'),
+  useRecordingsToggle: document.getElementById('useRecordingsToggle'),
+  recordingsList: document.getElementById('recordingsList'),
+  clearRecordings: document.getElementById('clearRecordings'),
 };
 
 const debug = {
@@ -129,31 +149,130 @@ function pickPhrase() {
   return PHRASES[i];
 }
 
-function pickVoice() {
+function pickRecording() {
+  if (recordings.length <= 1) return recordings[0];
+  let i;
+  do { i = Math.floor(Math.random() * recordings.length); } while (i === state.lastRecIndex);
+  state.lastRecIndex = i;
+  return recordings[i];
+}
+
+function populateVoices() {
   if (typeof speechSynthesis === 'undefined') return;
   const voices = speechSynthesis.getVoices();
-  state.voice =
-    voices.find(v => v.lang === 'ru-RU') ||
-    voices.find(v => v.lang && v.lang.toLowerCase().startsWith('ru')) ||
-    null;
+  if (!voices.length) return;
+
+  const sorted = voices.slice().sort((a, b) => {
+    const ar = a.lang.toLowerCase().startsWith('ru') ? 0 : 1;
+    const br = b.lang.toLowerCase().startsWith('ru') ? 0 : 1;
+    if (ar !== br) return ar - br;
+    return a.name.localeCompare(b.name);
+  });
+
+  els.voiceSelect.innerHTML = '';
+  for (const v of sorted) {
+    const opt = document.createElement('option');
+    opt.value = v.voiceURI;
+    opt.textContent = v.name + ' (' + v.lang + ')' + (v.default ? ' ★' : '');
+    els.voiceSelect.append(opt);
+  }
+
+  let chosen = state.voiceURI ? voices.find(v => v.voiceURI === state.voiceURI) : null;
+  if (!chosen) {
+    chosen =
+      voices.find(v => v.lang === 'ru-RU') ||
+      voices.find(v => v.lang && v.lang.toLowerCase().startsWith('ru')) ||
+      voices.find(v => v.default) ||
+      voices[0] ||
+      null;
+  }
+  state.voice = chosen;
+  state.voiceURI = chosen ? chosen.voiceURI : null;
+  if (chosen) els.voiceSelect.value = chosen.voiceURI;
 }
 
 function speak(text) {
   if (typeof speechSynthesis === 'undefined') return;
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'ru-RU';
+  u.lang = (state.voice && state.voice.lang) || 'ru-RU';
   if (state.voice) u.voice = state.voice;
-  u.rate = 1.05;
-  u.pitch = 0.85;
+  u.rate = 1.0;
+  u.pitch = state.ttsPitch;
   u.volume = 1;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
 
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    audioCtx = new Ctx();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function bytesToBase64(bytes) {
+  let s = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function playRecording(rec) {
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  const bytes = base64ToBytes(rec.data);
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  let buf;
+  try {
+    buf = await ctx.decodeAudioData(ab);
+  } catch (e) {
+    console.warn('decodeAudioData failed', e);
+    return;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = state.recPitch;
+
+  // Bass boost so the lower-pitched voice has body.
+  const bass = ctx.createBiquadFilter();
+  bass.type = 'lowshelf';
+  bass.frequency.value = 220;
+  bass.gain.value = 6;
+
+  // Lowpass to shave the highs — sounds like rough/muffled speech.
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2800;
+
+  const gain = ctx.createGain();
+  gain.gain.value = 1.3;
+
+  src.connect(bass).connect(lp).connect(gain).connect(ctx.destination);
+  src.start();
+}
+
 function trigger() {
-  const phrase = pickPhrase();
-  els.last.textContent = '«' + phrase + '»';
-  speak(phrase);
+  if (state.useRecordings && recordings.length > 0) {
+    const rec = pickRecording();
+    els.last.textContent = '▶ запись «' + (rec.label || rec.id) + '»';
+    playRecording(rec);
+  } else {
+    const phrase = pickPhrase();
+    els.last.textContent = '«' + phrase + '»';
+    speak(phrase);
+  }
 }
 
 function motionValue(e) {
@@ -240,7 +359,8 @@ async function arm() {
     return;
   }
 
-  // Speak once on user gesture so the engine warms up and is allowed to speak later.
+  // Unlock audio + speech engines while we still have a user gesture.
+  ensureAudioCtx();
   speak('Охрана включена. Не трогай.');
 
   state.events = 0;
@@ -276,7 +396,7 @@ els.sensitivity.addEventListener('input', () => {
 });
 
 els.testBtn.addEventListener('click', () => {
-  pickVoice();
+  ensureAudioCtx();
   trigger();
 });
 
@@ -293,11 +413,208 @@ els.debugBtn.addEventListener('click', async () => {
   els.debugBtn.disabled = true;
 });
 
+// Recording controls
+function loadStoredSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('shaker:settings') || '{}');
+    if (s.voiceURI) state.voiceURI = s.voiceURI;
+    if (typeof s.ttsPitch === 'number') state.ttsPitch = s.ttsPitch;
+    if (typeof s.recPitch === 'number') state.recPitch = s.recPitch;
+    if (typeof s.useRecordings === 'boolean') state.useRecordings = s.useRecordings;
+  } catch (_) { /* ignore */ }
+}
+
+function saveStoredSettings() {
+  try {
+    localStorage.setItem('shaker:settings', JSON.stringify({
+      voiceURI: state.voiceURI,
+      ttsPitch: state.ttsPitch,
+      recPitch: state.recPitch,
+      useRecordings: state.useRecordings,
+    }));
+  } catch (_) { /* quota */ }
+}
+
+function loadRecordings() {
+  try {
+    recordings = JSON.parse(localStorage.getItem('shaker:recordings') || '[]');
+    if (!Array.isArray(recordings)) recordings = [];
+  } catch (_) { recordings = []; }
+}
+
+function saveRecordings() {
+  try {
+    localStorage.setItem('shaker:recordings', JSON.stringify(recordings));
+  } catch (e) {
+    alert('Не удалось сохранить запись — кончилось место в localStorage. Удали часть записей.');
+  }
+}
+
+function renderRecordings() {
+  els.recordingsList.innerHTML = '';
+  if (recordings.length === 0) {
+    const p = document.createElement('div');
+    p.className = 'empty';
+    p.textContent = 'Записей пока нет — сработает синтез голоса.';
+    els.recordingsList.append(p);
+    return;
+  }
+  recordings.forEach((rec, idx) => {
+    const row = document.createElement('div');
+    row.className = 'rec-row';
+
+    const playBtn = document.createElement('button');
+    playBtn.className = 'play';
+    playBtn.textContent = '▶';
+    playBtn.title = 'Проиграть с эффектом';
+    playBtn.addEventListener('click', () => playRecording(rec));
+
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = '#' + (idx + 1) + '  ·  ' + Math.round((rec.size || 0) / 1024) + ' КБ';
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Удалить';
+    delBtn.addEventListener('click', () => {
+      recordings = recordings.filter(r => r.id !== rec.id);
+      saveRecordings();
+      renderRecordings();
+    });
+
+    row.append(playBtn, label, delBtn);
+    els.recordingsList.append(row);
+  });
+}
+
+function pickRecorderMime() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/aac',
+  ];
+  for (const m of candidates) {
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert('Браузер не даёт доступ к микрофону.');
+    return;
+  }
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    alert('Микрофон не разрешён: ' + e.message);
+    return;
+  }
+  const mime = pickRecorderMime();
+  try {
+    mediaRecorder = new MediaRecorder(recordingStream, mime ? { mimeType: mime } : undefined);
+  } catch (e) {
+    alert('MediaRecorder не поддерживается: ' + e.message);
+    recordingStream.getTracks().forEach(t => t.stop());
+    return;
+  }
+  recordedChunks = [];
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+  };
+  mediaRecorder.onstop = async () => {
+    if (recordingStream) recordingStream.getTracks().forEach(t => t.stop());
+    recordingStream = null;
+    const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || mime || 'audio/webm' });
+    if (blob.size === 0) {
+      els.recordBtn.value = '🎙 Записать фразу';
+      els.recordBtn.classList.remove('active');
+      return;
+    }
+    const buf = await blob.arrayBuffer();
+    const data = bytesToBase64(new Uint8Array(buf));
+    recordings.push({
+      id: Date.now(),
+      mime: blob.type,
+      size: blob.size,
+      data,
+    });
+    saveRecordings();
+    renderRecordings();
+    els.recordBtn.value = '🎙 Записать фразу';
+    els.recordBtn.classList.remove('active');
+  };
+  mediaRecorder.start();
+  els.recordBtn.value = '⏹ Стоп';
+  els.recordBtn.classList.add('active');
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
+}
+
+els.recordBtn.addEventListener('click', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
+els.clearRecordings.addEventListener('click', () => {
+  if (recordings.length === 0) return;
+  if (!confirm('Удалить все записи?')) return;
+  recordings = [];
+  saveRecordings();
+  renderRecordings();
+});
+
+els.voiceSelect.addEventListener('change', () => {
+  const voices = speechSynthesis.getVoices();
+  state.voiceURI = els.voiceSelect.value;
+  state.voice = voices.find(v => v.voiceURI === state.voiceURI) || null;
+  saveStoredSettings();
+});
+
+els.ttsPitch.addEventListener('input', () => {
+  state.ttsPitch = parseFloat(els.ttsPitch.value);
+  els.ttsPitchValue.textContent = state.ttsPitch.toFixed(2);
+  saveStoredSettings();
+});
+
+els.recPitch.addEventListener('input', () => {
+  state.recPitch = parseFloat(els.recPitch.value);
+  els.recPitchValue.textContent = state.recPitch.toFixed(2);
+  saveStoredSettings();
+});
+
+els.useRecordingsToggle.addEventListener('change', () => {
+  state.useRecordings = els.useRecordingsToggle.checked;
+  saveStoredSettings();
+});
+
 // Voices populate asynchronously in some browsers.
 if (typeof speechSynthesis !== 'undefined') {
-  speechSynthesis.onvoiceschanged = pickVoice;
-  pickVoice();
+  speechSynthesis.onvoiceschanged = populateVoices;
+  populateVoices();
 }
+
+// Load persisted state and reflect in UI.
+loadStoredSettings();
+loadRecordings();
+populateVoices();
+renderRecordings();
+els.ttsPitch.value = state.ttsPitch;
+els.ttsPitchValue.textContent = state.ttsPitch.toFixed(2);
+els.recPitch.value = state.recPitch;
+els.recPitchValue.textContent = state.recPitch.toFixed(2);
+els.useRecordingsToggle.checked = state.useRecordings;
 
 // Initialize threshold from default slider.
 state.threshold = 9 - parseFloat(els.sensitivity.value);
