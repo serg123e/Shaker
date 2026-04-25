@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#111">
+<title>Шейкер — охрана телефона</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>Шейкер</h1>
+  <p class="hint">Нажми кнопку, положи телефон. Если кто-то его поднимет — он огребёт.</p>
+
+  <button id="start">Включить охрану</button>
+
+  <div class="meter" aria-hidden="true">
+    <div id="bar"></div>
+  </div>
+
+  <p id="status">Ожидание…</p>
+  <p id="last"></p>
+
+  <details>
+    <summary>Настройки</summary>
+    <label>
+      Чувствительность
+      <input id="sensitivity" type="range" min="1" max="8" step="0.1" value="3">
+      <span id="sensitivityValue">3.0</span>
+    </label>
+    <label>
+      <input id="testBtn" type="button" value="Проверить голос">
+    </label>
+  </details>
+
+  <p class="footnote">
+    Работает на HTTPS (или localhost). На iOS жми «Включить» — браузер спросит доступ к датчикам.
+  </p>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
