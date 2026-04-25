@@ -28,11 +28,14 @@ const PHRASES = [
 
 const state = {
   armed: false,
-  baseline: 9.81,
   cooldownUntil: 0,
   lastPhraseIndex: -1,
   voice: null,
   threshold: 3,
+  peak: 0,
+  events: 0,
+  lastValue: 0,
+  rotPeak: 0,
 };
 
 const els = {
@@ -80,21 +83,50 @@ function trigger() {
   speak(phrase);
 }
 
+function motionValue(e) {
+  // Prefer linear acceleration (gravity removed) — most accurate.
+  const lin = e.acceleration;
+  if (lin && (lin.x != null || lin.y != null || lin.z != null)) {
+    return Math.hypot(lin.x || 0, lin.y || 0, lin.z || 0);
+  }
+  // Fallback: total acceleration minus gravity magnitude.
+  const a = e.accelerationIncludingGravity;
+  if (!a) return 0;
+  const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+  return Math.abs(mag - 9.81);
+}
+
+function rotationValue(e) {
+  const r = e.rotationRate;
+  if (!r) return 0;
+  // deg/s magnitude. Scale down so it's comparable to accel m/s².
+  return Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0) / 50;
+}
+
 function onMotion(e) {
   if (!state.armed) return;
-  const a = e.accelerationIncludingGravity || e.acceleration;
-  if (!a) return;
-  const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
 
-  // Slow EMA approximates "device at rest" magnitude (~9.81).
-  state.baseline = state.baseline * 0.97 + mag * 0.03;
-  const delta = Math.abs(mag - state.baseline);
+  const accel = motionValue(e);
+  const rot = rotationValue(e);
+  const value = Math.max(accel, rot);
 
-  const norm = Math.min(1, delta / (state.threshold * 2));
+  state.events++;
+  state.lastValue = value;
+  // Decaying peak so the meter has visible history.
+  state.peak = Math.max(state.peak * 0.9, value);
+
+  const norm = Math.min(1, state.peak / Math.max(0.5, state.threshold * 1.5));
   els.bar.style.width = (norm * 100) + '%';
 
+  if (state.events % 20 === 0) {
+    els.status.textContent =
+      'События: ' + state.events +
+      ' · сейчас: ' + value.toFixed(2) +
+      ' · порог: ' + state.threshold.toFixed(2);
+  }
+
   const now = performance.now();
-  if (delta > state.threshold && now > state.cooldownUntil) {
+  if (value > state.threshold && now > state.cooldownUntil) {
     state.cooldownUntil = now + 2500;
     trigger();
   }
@@ -128,7 +160,9 @@ async function arm() {
   // Speak once on user gesture so the engine warms up and is allowed to speak later.
   speak('Охрана включена. Не трогай.');
 
-  state.baseline = 9.81;
+  state.events = 0;
+  state.peak = 0;
+  state.cooldownUntil = performance.now() + 1500; // grace period after arming
   window.addEventListener('devicemotion', onMotion);
   state.armed = true;
   els.start.textContent = 'Выключить';
