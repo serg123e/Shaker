@@ -27,8 +27,8 @@
   <p id="status">Ожидание…</p>
   <p id="last"></p>
 
-  <details>
-    <summary>Настройки</summary>
+  <details open>
+    <summary>Настройки и диагностика</summary>
     <label>
       Чувствительность
       <input id="sensitivity" type="range" min="1" max="8" step="0.1" value="5">
@@ -37,6 +37,25 @@
     <label>
       <input id="testBtn" type="button" value="Проверить голос">
     </label>
+    <label>
+      <input id="debugBtn" type="button" value="Показать данные датчиков">
+    </label>
+
+    <div class="debug">
+      <div class="debug-row"><span>Secure context</span><span id="dbgSecure">—</span></div>
+      <div class="debug-row"><span>DeviceMotionEvent</span><span id="dbgMotionApi">—</span></div>
+      <div class="debug-row"><span>requestPermission</span><span id="dbgNeedsPerm">—</span></div>
+      <div class="debug-row"><span>Permission</span><span id="dbgPerm">—</span></div>
+      <div class="debug-row"><span>События</span><span id="dbgEvents">0</span></div>
+      <div class="debug-row"><span>Интервал, мс</span><span id="dbgInterval">—</span></div>
+      <div class="debug-row"><span>accel x/y/z</span><span id="dbgAccel">—</span></div>
+      <div class="debug-row"><span>|accel|</span><span id="dbgAccelMag">—</span></div>
+      <div class="debug-row"><span>accelG x/y/z</span><span id="dbgAccelG">—</span></div>
+      <div class="debug-row"><span>|accelG|</span><span id="dbgAccelGMag">—</span></div>
+      <div class="debug-row"><span>rotRate α/β/γ</span><span id="dbgRot">—</span></div>
+      <div class="debug-row"><span>|rotRate|</span><span id="dbgRotMag">—</span></div>
+      <div class="debug-row"><span>сигнал / порог</span><span id="dbgSignal">—</span></div>
+    </div>
   </details>
 
   <p class="footnote">

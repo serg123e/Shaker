@@ -46,7 +46,80 @@ const els = {
   sensitivity: document.getElementById('sensitivity'),
   sensitivityValue: document.getElementById('sensitivityValue'),
   testBtn: document.getElementById('testBtn'),
+  debugBtn: document.getElementById('debugBtn'),
+  dbgSecure: document.getElementById('dbgSecure'),
+  dbgMotionApi: document.getElementById('dbgMotionApi'),
+  dbgNeedsPerm: document.getElementById('dbgNeedsPerm'),
+  dbgPerm: document.getElementById('dbgPerm'),
+  dbgEvents: document.getElementById('dbgEvents'),
+  dbgInterval: document.getElementById('dbgInterval'),
+  dbgAccel: document.getElementById('dbgAccel'),
+  dbgAccelMag: document.getElementById('dbgAccelMag'),
+  dbgAccelG: document.getElementById('dbgAccelG'),
+  dbgAccelGMag: document.getElementById('dbgAccelGMag'),
+  dbgRot: document.getElementById('dbgRot'),
+  dbgRotMag: document.getElementById('dbgRotMag'),
+  dbgSignal: document.getElementById('dbgSignal'),
 };
+
+const debug = {
+  listening: false,
+  lastUpdate: 0,
+};
+
+function fmt(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  return (n >= 0 ? ' ' : '') + n.toFixed(2);
+}
+
+function updateDebug(e) {
+  const now = performance.now();
+  // Throttle to ~10 fps so the panel is readable.
+  if (now - debug.lastUpdate < 100) return;
+  debug.lastUpdate = now;
+
+  const lin = e.acceleration || {};
+  const grav = e.accelerationIncludingGravity || {};
+  const rot = e.rotationRate || {};
+
+  els.dbgEvents.textContent = String(state.events);
+  els.dbgInterval.textContent = e.interval != null ? e.interval.toFixed(1) : '—';
+
+  if (lin.x != null || lin.y != null || lin.z != null) {
+    els.dbgAccel.textContent = fmt(lin.x) + ' / ' + fmt(lin.y) + ' / ' + fmt(lin.z);
+    els.dbgAccelMag.textContent = Math.hypot(lin.x || 0, lin.y || 0, lin.z || 0).toFixed(2);
+  } else {
+    els.dbgAccel.textContent = 'null';
+    els.dbgAccelMag.textContent = '—';
+  }
+
+  if (grav.x != null || grav.y != null || grav.z != null) {
+    els.dbgAccelG.textContent = fmt(grav.x) + ' / ' + fmt(grav.y) + ' / ' + fmt(grav.z);
+    els.dbgAccelGMag.textContent = Math.hypot(grav.x || 0, grav.y || 0, grav.z || 0).toFixed(2);
+  } else {
+    els.dbgAccelG.textContent = 'null';
+    els.dbgAccelGMag.textContent = '—';
+  }
+
+  if (rot.alpha != null || rot.beta != null || rot.gamma != null) {
+    els.dbgRot.textContent = fmt(rot.alpha) + ' / ' + fmt(rot.beta) + ' / ' + fmt(rot.gamma);
+    els.dbgRotMag.textContent = Math.hypot(rot.alpha || 0, rot.beta || 0, rot.gamma || 0).toFixed(2);
+  } else {
+    els.dbgRot.textContent = 'null';
+    els.dbgRotMag.textContent = '—';
+  }
+
+  els.dbgSignal.textContent = state.lastValue.toFixed(2) + ' / ' + state.threshold.toFixed(2);
+}
+
+function fillStaticDebug() {
+  els.dbgSecure.textContent = window.isSecureContext ? 'да' : 'НЕТ (нужен HTTPS)';
+  els.dbgMotionApi.textContent = ('DeviceMotionEvent' in window) ? 'есть' : 'нет';
+  const needsPerm =
+    typeof DeviceMotionEvent !== 'undefined' &&
+    typeof DeviceMotionEvent.requestPermission === 'function';
+  els.dbgNeedsPerm.textContent = needsPerm ? 'да (iOS)' : 'нет';
+}
 
 function pickPhrase() {
   if (PHRASES.length <= 1) return PHRASES[0];
@@ -104,16 +177,17 @@ function rotationValue(e) {
 }
 
 function onMotion(e) {
-  if (!state.armed) return;
-
   const accel = motionValue(e);
   const rot = rotationValue(e);
   const value = Math.max(accel, rot);
 
   state.events++;
   state.lastValue = value;
-  // Decaying peak so the meter has visible history.
   state.peak = Math.max(state.peak * 0.9, value);
+
+  updateDebug(e);
+
+  if (!state.armed) return;
 
   const norm = Math.min(1, state.peak / Math.max(0.5, state.threshold * 1.5));
   els.bar.style.width = (norm * 100) + '%';
@@ -132,11 +206,20 @@ function onMotion(e) {
   }
 }
 
+function ensureMotionListener() {
+  if (debug.listening) return;
+  window.addEventListener('devicemotion', onMotion);
+  debug.listening = true;
+}
+
 async function requestSensorPermission() {
   if (typeof DeviceMotionEvent !== 'undefined' &&
       typeof DeviceMotionEvent.requestPermission === 'function') {
     const r = await DeviceMotionEvent.requestPermission();
+    els.dbgPerm.textContent = r;
     if (r !== 'granted') throw new Error('Доступ к датчикам запрещён');
+  } else {
+    els.dbgPerm.textContent = 'не требуется';
   }
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -163,7 +246,7 @@ async function arm() {
   state.events = 0;
   state.peak = 0;
   state.cooldownUntil = performance.now() + 1500; // grace period after arming
-  window.addEventListener('devicemotion', onMotion);
+  ensureMotionListener();
   state.armed = true;
   els.start.textContent = 'Выключить';
   els.start.classList.add('armed');
@@ -172,7 +255,7 @@ async function arm() {
 
 function disarm() {
   state.armed = false;
-  window.removeEventListener('devicemotion', onMotion);
+  // Keep the listener alive if the debug panel is using it; otherwise drop it.
   els.start.textContent = 'Включить охрану';
   els.start.classList.remove('armed');
   els.status.textContent = 'Остановлено';
@@ -197,6 +280,19 @@ els.testBtn.addEventListener('click', () => {
   trigger();
 });
 
+els.debugBtn.addEventListener('click', async () => {
+  try {
+    await requestSensorPermission();
+  } catch (e) {
+    els.dbgPerm.textContent = 'отказ';
+    els.status.textContent = e.message;
+    return;
+  }
+  ensureMotionListener();
+  els.debugBtn.value = 'Датчики стримят…';
+  els.debugBtn.disabled = true;
+});
+
 // Voices populate asynchronously in some browsers.
 if (typeof speechSynthesis !== 'undefined') {
   speechSynthesis.onvoiceschanged = pickVoice;
@@ -206,6 +302,8 @@ if (typeof speechSynthesis !== 'undefined') {
 // Initialize threshold from default slider.
 state.threshold = 9 - parseFloat(els.sensitivity.value);
 els.sensitivityValue.textContent = parseFloat(els.sensitivity.value).toFixed(1);
+
+fillStaticDebug();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -108,6 +108,36 @@ input[type="range"] {
   width: 100%;
 }
 
+.debug {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: #0a0a0c;
+  border-radius: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #d4d4d8;
+  display: grid;
+  gap: 4px;
+}
+
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.debug-row > span:first-child {
+  color: #71717a;
+}
+
+.debug-row > span:last-child {
+  color: #f4f4f5;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .footnote {
   margin-top: auto;
   font-size: 12px;
