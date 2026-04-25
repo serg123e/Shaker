@@ -172,3 +172,11 @@ if (typeof speechSynthesis !== 'undefined') {
 // Initialize threshold from default slider.
 state.threshold = 9 - parseFloat(els.sensitivity.value);
 els.sensitivityValue.textContent = parseFloat(els.sensitivity.value).toFixed(1);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((e) => {
+      console.warn('SW registration failed:', e);
+    });
+  });
+}
